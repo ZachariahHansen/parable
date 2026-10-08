@@ -4,7 +4,8 @@ set -eu
 cd "$(dirname "$0")"
 ./make-app.sh release
 rm -f Parable.zip
-# ditto keeps the code signature and extended attributes intact.
-ditto -c -k --keepParent Parable.app Parable.zip
+# Leave out extended attributes: they get stored as ._ files, which command-line
+# unzip drops inside the app, breaking its code signature.
+ditto -c -k --norsrc --noextattr --keepParent Parable.app Parable.zip
 echo "wrote $PWD/Parable.zip"
 shasum -a 256 Parable.zip
