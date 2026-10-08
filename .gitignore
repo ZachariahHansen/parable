@@ -13,3 +13,7 @@ Parable.zip
 EngineBuild/
 
 .DS_Store
+
+# Stale copies macOS leaves behind when the app is rebuilt while it is open
+Parable [0-9]*.app/
+Parable [0-9]*.zip
