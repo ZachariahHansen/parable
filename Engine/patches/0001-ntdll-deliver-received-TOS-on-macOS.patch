@@ -1,0 +1,13 @@
+--- a/dlls/ntdll/unix/socket.c	2026-07-15 03:37:33
++++ b/dlls/ntdll/unix/socket.c	2026-10-07 16:42:22
+@@ -429,6 +429,10 @@
+ 
+ #if defined(IP_TOS)
+                     case IP_TOS:
++#if defined(IP_RECVTOS) && IP_RECVTOS != IP_TOS
++                    /* macOS and the BSDs tag the received TOS byte with IP_RECVTOS, not IP_TOS. */
++                    case IP_RECVTOS:
++#endif
+                     {
+                         INT tos = *(unsigned char *)CMSG_DATA(cmsg_unix);
+                         ptr = fill_control_message( WS_IPPROTO_IP, WS_IP_TOS, ptr, &ctlsize,

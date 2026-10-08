@@ -1,0 +1,15 @@
+# Swift build output
+.build/
+.swiftpm/
+*.xcodeproj
+xcuserdata/
+DerivedData/
+
+# Built app and release archives
+Parable.app/
+Parable.zip
+
+# Engine sources, objects and packaged archives (large; see Engine/build-engine.sh)
+EngineBuild/
+
+.DS_Store

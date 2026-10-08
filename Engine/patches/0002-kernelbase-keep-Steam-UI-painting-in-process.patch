@@ -1,0 +1,27 @@
+--- a/dlls/kernelbase/process.c	2026-07-15 03:37:33
++++ b/dlls/kernelbase/process.c	2026-10-07 17:12:42
+@@ -543,6 +543,24 @@
+     {
+         if (!(tidy_cmdline = get_file_name( cmd_line, name, ARRAY_SIZE(name) ))) return FALSE;
+         app_name = name;
++    }
++
++    /* Parable: Steam's UI helper paints from a separate GPU process, which the Mac
++     * driver cannot display (the window stays black). Keep the painting inside
++     * the browser process. Its own children (--type=...) inherit what they need. */
++    if (wcsstr( app_name, L"steamwebhelper.exe" ) && !wcsstr( tidy_cmdline, L"--type=" ))
++    {
++        static const WCHAR extra[] = L" --no-sandbox --in-process-gpu --disable-gpu";
++        SIZE_T len = lstrlenW( tidy_cmdline ) + ARRAY_SIZE(extra);
++        WCHAR *new_cmdline = RtlAllocateHeap( GetProcessHeap(), 0, len * sizeof(WCHAR) );
++
++        if (new_cmdline)
++        {
++            lstrcpyW( new_cmdline, tidy_cmdline );
++            lstrcatW( new_cmdline, extra );
++            if (tidy_cmdline != cmd_line) HeapFree( GetProcessHeap(), 0, tidy_cmdline );
++            tidy_cmdline = new_cmdline;
++        }
+     }
+ 
+     /* CW Hack 24938 */
