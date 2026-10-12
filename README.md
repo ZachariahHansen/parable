@@ -50,6 +50,10 @@ A controller works over Bluetooth, but expect input delay. In testing with a Swi
 - **Connect the controller before starting the game.** Some games only look for controllers at launch.
 - **If you do use Bluetooth**, quit other apps that talk to controllers, such as the Mac version of Steam.
 
+### If a program won't open
+
+Closing a window doesn't always quit the program. Steam in particular keeps running out of sight, and then refuses to open a second time. Quit Steam with **Steam → Exit**, or use **Background Programs → Quit All** in the bottle's Tools to end everything in the bottle.
+
 ### Bottle settings
 
 - **Engine**: which Wine build the bottle uses.
@@ -95,6 +99,8 @@ Parable's engine is CodeWeavers' CrossOver 26.3 source release (Wine 11.0) with 
 
 - `0001`: return the type-of-service detail on received packets on macOS. Steam's networking library aborts the game without it, which crashed online play.
 - `0002`: start Steam's UI helper with in-process painting. Wine's Mac driver cannot show a window painted from another process, which left Steam's window black.
+- `0003`: give each program its own name in the app switcher. Wine runs everything from one executable, so they were all called "wine".
+- `0004`: name the per-program loader links like apps ("Steam", not "steam.exe"), which is what the Dock displays. Parable sets `WINEDLLPATH` to switch that mechanism on.
 
 It is built with SDL so that controllers reach games through Wine itself.
 

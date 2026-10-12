@@ -18,6 +18,7 @@ let usage = """
       parable bottle retina <name> on|off     native Retina resolution (sharper)
       parable bottle engine <name> <engine>   switch a bottle to another engine
       parable run <bottle> <program> [args]   run a .exe (or a Wine builtin such as winecfg)
+      parable stop <bottle>                   quit everything running in a bottle
       parable open <bottle>                   show a bottle's C: drive in Finder
 
     Data lives in ~/Library/Application Support/Parable (override with PARABLE_HOME).
@@ -187,6 +188,9 @@ do {
     case "run":
         guard args.count >= 3 else { fail("usage: parable run <bottle> <program> [args]") }
         exit(try runner.wine(Array(args.dropFirst(2)), in: args[1]))
+    case "stop":
+        guard args.count == 2 else { fail("usage: parable stop <bottle>") }
+        try runner.stopAll(in: args[1])
     case "open":
         guard args.count == 2 else { fail("usage: parable open <bottle>") }
         _ = try bottles.load(args[1])

@@ -1,0 +1,98 @@
+--- a/dlls/winemac.drv/cocoa_app.m	2026-07-15 03:37:33
++++ b/dlls/winemac.drv/cocoa_app.m	2026-10-07 19:46:06
+@@ -24,6 +24,8 @@
+ #import "cocoa_window.h"
+ #import "cocoa_icon_utils.h"
+ 
++static void apply_process_name(void);
++
+ #pragma GCC diagnostic ignored "-Wdeclaration-after-statement"
+ 
+ 
+@@ -326,6 +328,7 @@
+             }
+ 
+             [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
++            apply_process_name();
+ 
+             if (activateIfTransformed)
+                 [self tryToActivateIgnoringOtherApps:YES];
+@@ -2872,6 +2875,43 @@
+     });
+ 
+     return ret;
++}
++
++/***********************************************************************
++ *              macdrv_set_process_name
++ *
++ * Parable: remember the name the Dock should show for this process. Wine runs
++ * every Windows program from one unbundled executable, so without this they
++ * are all labelled "wine".
++ */
++static NSString *process_display_name;
++
++void macdrv_set_process_name(CFStringRef name)
++{
++    NSString *copy = [(NSString *)name copy];
++    [process_display_name release];
++    process_display_name = copy;
++}
++
++/* The display name of a running app belongs to LaunchServices, and the only
++ * way to change it for a process without a bundle is through these calls. They
++ * are looked up at runtime so that a system without them just keeps "wine". */
++static void apply_process_name(void)
++{
++    CFBundleRef services = CFBundleGetBundleWithIdentifier(CFSTR("com.apple.LaunchServices"));
++    CFTypeRef (*get_asn)(void);
++    OSStatus (*set_item)(int, CFTypeRef, CFStringRef, CFStringRef, CFDictionaryRef *);
++    CFStringRef *display_name_key;
++    CFTypeRef asn;
++
++    if (!process_display_name || !services) return;
++    get_asn = CFBundleGetFunctionPointerForName(services, CFSTR("_LSGetCurrentApplicationASN"));
++    set_item = CFBundleGetFunctionPointerForName(services, CFSTR("_LSSetApplicationInformationItem"));
++    display_name_key = CFBundleGetDataPointerForName(services, CFSTR("_kLSDisplayNameKey"));
++    if (!get_asn || !set_item || !display_name_key) return;
++
++    if ((asn = get_asn()))
++        set_item(-2 /* current session */, asn, *display_name_key, (CFStringRef)process_display_name, NULL);
+ }
+ 
+ /***********************************************************************
+--- a/dlls/winemac.drv/macdrv_cocoa.h	2026-07-15 03:37:33
++++ b/dlls/winemac.drv/macdrv_cocoa.h	2026-10-07 19:45:57
+@@ -221,6 +221,7 @@
+ extern void macdrv_window_rejected_focus(const struct macdrv_event *event);
+ extern void macdrv_beep(void);
+ extern void macdrv_set_application_icon(CFArrayRef images, CFURLRef url /* CrossOver Hack 13440 */);
++extern void macdrv_set_process_name(CFStringRef name);
+ extern void macdrv_quit_reply(int reply);
+ extern bool macdrv_using_input_method(void);
+ extern void macdrv_set_mouse_capture_window(macdrv_window window);
+--- a/dlls/winemac.drv/macdrv_main.c	2026-07-15 03:37:33
++++ b/dlls/winemac.drv/macdrv_main.c	2026-10-07 19:45:57
+@@ -297,6 +297,22 @@
+     if ((p = wcsrchr(appname, '/'))) appname = p + 1;
+     if ((p = wcsrchr(appname, '\\'))) appname = p + 1;
+     len = lstrlenW(appname);
++
++    /* Parable: label the Dock icon with the Windows program's name, not "wine". */
++    if (len && len < MAX_PATH)
++    {
++        WCHAR name[MAX_PATH];
++        CFStringRef string;
++
++        memcpy(name, appname, (len + 1) * sizeof(WCHAR));
++        if ((p = wcsrchr(name, '.'))) *p = 0;
++        if (name[0] >= 'a' && name[0] <= 'z') name[0] -= 'a' - 'A';
++        if (name[0] && (string = CFStringCreateWithCharacters(NULL, (const UniChar *)name, lstrlenW(name))))
++        {
++            macdrv_set_process_name(string);
++            CFRelease(string);
++        }
++    }
+ 
+     if (len && len < MAX_PATH)
+     {

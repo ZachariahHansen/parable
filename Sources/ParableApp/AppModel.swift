@@ -124,6 +124,13 @@ final class AppModel {
         }
     }
 
+    /// Quits everything in the bottle, whether or not this app started it.
+    func stopAll(in bottle: Bottle) async {
+        let (runner, name) = (runner, bottle.name)
+        await background("Quitting programs in “\(name)”…") { try runner.stopAll(in: name) }
+        runningCounts[name] = 0
+    }
+
     func isRunning(_ bottle: Bottle) -> Bool { runningCounts[bottle.name, default: 0] > 0 }
 
     func chooseProgram(for bottle: Bottle) {

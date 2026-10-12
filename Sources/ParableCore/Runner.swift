@@ -19,6 +19,9 @@ public struct Runner: Sendable {
         // Wine dlopens its helper libraries by bare name; point dyld at the engine's copies.
         let lib = engine.libDirectory.path
         env["DYLD_FALLBACK_LIBRARY_PATH"] = "\(lib):\(lib)/external:/usr/lib"
+        // With this set, the engine starts each Windows program through a link named
+        // after it, which is what makes the Dock say "Steam" instead of "wine".
+        env["WINEDLLPATH"] = "\(lib)/wine"
         // Wine is extremely chatty by default; keep it quiet unless asked.
         if env["WINEDEBUG"] == nil { env["WINEDEBUG"] = "-all" }
         // Faster synchronization primitives; a large win for most games.
@@ -67,6 +70,20 @@ public struct Runner: Sendable {
         }
         try process.run()
         return process
+    }
+
+    /// Ends every program running in the bottle, including ones with no window.
+    /// Closing a window doesn't always quit the program behind it: Steam keeps
+    /// running in the background, and then won't open a second time.
+    public func stopAll(in bottleName: String) throws {
+        let bottle = try bottles.load(bottleName)
+        let engine = try engines.load(bottle.engine)
+        let process = Process()
+        process.executableURL = engine.binDirectory.appendingPathComponent("wineserver")
+        process.arguments = ["-k"]
+        process.environment = environment(for: bottle, engine: engine)
+        try process.run()
+        process.waitUntilExit()
     }
 
     /// Has Wine build the fake C: drive and registry for a fresh bottle.

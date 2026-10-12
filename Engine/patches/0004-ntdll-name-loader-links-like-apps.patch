@@ -1,0 +1,17 @@
+--- a/dlls/ntdll/unix/loader.c	2026-07-15 03:37:33
++++ b/dlls/ntdll/unix/loader.c	2026-10-07 20:26:10
+@@ -553,8 +553,13 @@
+     else
+         exe_name_len = strlen(exe_name);
+ 
++    /* Parable: the Dock shows this link's file name, so make it read like an app
++     * name: "Steam", not "steam.exe". */
+     if (exe_name_len)
+-        ret = strdup(exe_name);
++    {
++        ret = strndup(exe_name, exe_name_len);
++        if (ret && ret[0] >= 'a' && ret[0] <= 'z') ret[0] -= 'a' - 'A';
++    }
+     else
+         ret = NULL;
+ 

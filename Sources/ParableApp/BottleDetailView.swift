@@ -36,6 +36,11 @@ struct BottleDetailView: View {
                 LabeledContent("C: Drive") {
                     Button("Show in Finder") { model.openDrive(of: bottle) }
                 }
+                LabeledContent("Background Programs") {
+                    Button("Quit All") { Task { await model.stopAll(in: bottle) } }
+                        .disabled(model.activity != nil)
+                        .help("Ends everything running in this bottle. Use it when a program won't open because an earlier copy is still running out of sight.")
+                }
                 LabeledContent("Last Run Log") {
                     Button("Open") { model.openLog(of: bottle) }
                 }
