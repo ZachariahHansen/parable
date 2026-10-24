@@ -18,8 +18,24 @@ final class AppModel {
     var errorMessage: String?
     /// Programs currently running, per bottle name.
     private(set) var runningCounts: [String: Int] = [:]
+    /// Bottles with a live Wine session, including ones this app didn't start
+    /// (a Steam left running from an earlier launch, or the command line).
+    private(set) var activeBottles: Set<String> = []
 
-    init() { refresh() }
+    init() {
+        refresh()
+        // Programs start and quit on their own schedule, so keep checking.
+        Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.refreshActivity() }
+        }
+    }
+
+    private func refreshActivity() {
+        let store = bottleStore
+        let active = Set(bottles.map(\.name).filter(store.hasRunningPrograms))
+        // Assign only on change, so the window isn't redrawn every tick.
+        if active != activeBottles { activeBottles = active }
+    }
 
     var selectedBottle: Bottle? { bottles.first { $0.id == selection } }
 
@@ -28,6 +44,7 @@ final class AppModel {
     func refresh() {
         engines = engineStore.list()
         bottles = bottleStore.list()
+        refreshActivity()
         if selectedBottle == nil { selection = bottles.first?.id }
     }
 
@@ -129,9 +146,12 @@ final class AppModel {
         let (runner, name) = (runner, bottle.name)
         await background("Quitting programs in “\(name)”…") { try runner.stopAll(in: name) }
         runningCounts[name] = 0
+        refreshActivity()
     }
 
-    func isRunning(_ bottle: Bottle) -> Bool { runningCounts[bottle.name, default: 0] > 0 }
+    func isRunning(_ bottle: Bottle) -> Bool {
+        runningCounts[bottle.name, default: 0] > 0 || activeBottles.contains(bottle.name)
+    }
 
     func chooseProgram(for bottle: Bottle) {
         let panel = NSOpenPanel()

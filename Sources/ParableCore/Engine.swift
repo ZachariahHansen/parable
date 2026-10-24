@@ -37,7 +37,7 @@ public struct EnginePreset: Sendable, Identifiable {
         EnginePreset(
             name: "parable",
             summary: "Parable's own engine: CrossOver 26.3 source (Wine 11.0) with fixes for Steam, online play and controllers.",
-            url: URL(string: "https://github.com/ZachariahHansen/parable/releases/download/engine-11.0-2/parable-engine-11.0-2.tar.xz")!),
+            url: URL(string: "https://github.com/ZachariahHansen/parable/releases/download/engine-11.0-3/parable-engine-11.0-3.tar.xz")!),
     ]
 
     public static func named(_ name: String) -> EnginePreset? {

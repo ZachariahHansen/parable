@@ -96,6 +96,12 @@ public struct BottleStore: Sendable {
         return bottle
     }
 
+    /// True while anything is running in the bottle, however it was started and
+    /// whether or not it has a window.
+    public func hasRunningPrograms(_ name: String) -> Bool {
+        !WineProcesses.pids(prefix: prefix(for: name), engines: paths.engines).isEmpty
+    }
+
     /// Moves a bottle, including everything installed in it, to the Trash.
     public func trash(_ name: String) throws {
         _ = try load(name)

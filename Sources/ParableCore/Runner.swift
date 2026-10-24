@@ -78,12 +78,22 @@ public struct Runner: Sendable {
     public func stopAll(in bottleName: String) throws {
         let bottle = try bottles.load(bottleName)
         let engine = try engines.load(bottle.engine)
+        let prefix = bottles.prefix(for: bottleName), engines = bottles.paths.engines
+        let running = WineProcesses.pids(prefix: prefix, engines: engines)
+        guard !running.isEmpty else { return }
+
+        // The polite way first: Wine's server shuts its programs down.
         let process = Process()
         process.executableURL = engine.binDirectory.appendingPathComponent("wineserver")
         process.arguments = ["-k"]
         process.environment = environment(for: bottle, engine: engine)
         try process.run()
-        process.waitUntilExit()
+        for _ in 0..<50 where process.isRunning { usleep(100_000) }
+        if process.isRunning { process.terminate() }
+
+        // A session whose server lost its lock file ignores that, so end whatever
+        // is left directly.
+        WineProcesses.terminate(running, prefix: prefix, engines: engines)
     }
 
     /// Has Wine build the fake C: drive and registry for a fresh bottle.

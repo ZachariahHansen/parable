@@ -1,0 +1,106 @@
+--- a/dlls/winemac.drv/cocoa_app.m	2026-10-23 20:56:17
++++ b/dlls/winemac.drv/cocoa_app.m	2026-10-23 20:56:04
+@@ -25,6 +25,7 @@
+ #import "cocoa_icon_utils.h"
+ 
+ static void apply_process_name(void);
++static NSTimer *staleButtonTimer;  /* Parable: see releaseStaleMouseButtons */
+ 
+ #pragma GCC diagnostic ignored "-Wdeclaration-after-statement"
+ 
+@@ -2433,6 +2434,66 @@
+     /*
+      * ---------- NSApplicationDelegate methods ----------
+      */
++    /* Parable: a button press can reach a game without its release, for example
++     * when the click that brings the game back is let go during the switch. The
++     * game then believes the button is held, and in many games the left button
++     * attacks or fires until it is clicked again. Compare what we last told the
++     * game with the buttons that are really down, and release any that aren't. */
++    - (void) releaseStaleMouseButtons
++    {
++        static const struct { NSEventType down; int button; NSUInteger physical; } buttons[] = {
++            { NSEventTypeLeftMouseDown,  0, 1 << 0 },
++            { NSEventTypeRightMouseDown, 1, 1 << 1 },
++            { NSEventTypeOtherMouseDown, 2, 1 << 2 },
++        };
++        NSUInteger physical;
++        WineWindow* target = nil;
++        int i;
++
++        if (!unmatchedMouseDowns) return;
++        physical = [NSEvent pressedMouseButtons];
++
++        if ([mouseCaptureWindow isKindOfClass:[WineWindow class]])
++            target = mouseCaptureWindow;
++        else
++        {
++            for (NSWindow* window in [NSApp orderedWindows])
++            {
++                if ([window isKindOfClass:[WineWindow class]])
++                {
++                    target = (WineWindow*)window;
++                    break;
++                }
++            }
++        }
++
++        for (i = 0; i < sizeof(buttons) / sizeof(buttons[0]); i++)
++        {
++            NSUInteger mask = NSEventMaskFromType(buttons[i].down);
++            CGEventRef current;
++            CGPoint pt;
++            macdrv_event* event;
++
++            if (!(unmatchedMouseDowns & mask) || (physical & buttons[i].physical)) continue;
++            unmatchedMouseDowns &= ~mask;
++            if (!target) continue;
++
++            current = CGEventCreate(NULL);
++            pt = current ? CGEventGetLocation(current) : CGPointZero;
++            if (current) CFRelease(current);
++            pt = cgpoint_win_from_mac(pt);
++
++            event = macdrv_create_event(MOUSE_BUTTON, target);
++            event->mouse_button.button = buttons[i].button;
++            event->mouse_button.pressed = FALSE;
++            event->mouse_button.x = floor(pt.x);
++            event->mouse_button.y = floor(pt.y);
++            event->mouse_button.time_ms = [self ticksForEventTime:[[NSProcessInfo processInfo] systemUptime]];
++            [target.queue postEvent:event];
++            macdrv_release_event(event);
++        }
++    }
++
+     - (void)applicationDidBecomeActive:(NSNotification *)notification
+     {
+         NSNumber* displayID;
+@@ -2468,6 +2529,16 @@
+         // movement deltas are invalidated.  Make sure the next mouse move event
+         // starts over from an absolute baseline.
+         forceNextMouseMoveAbsolute = TRUE;
++
++        // Parable: the release that pairs with the activating click can arrive
++        // late or not at all, so keep checking while we're the active app.
++        [self releaseStaleMouseButtons];
++        [staleButtonTimer invalidate];
++        staleButtonTimer = [NSTimer scheduledTimerWithTimeInterval:0.25
++                                                            target:self
++                                                          selector:@selector(releaseStaleMouseButtons)
++                                                          userInfo:nil
++                                                           repeats:YES];
+     }
+ 
+     - (void)applicationDidChangeScreenParameters:(NSNotification *)notification
+@@ -2502,6 +2573,11 @@
+         }
+ 
+         [self releaseMouseCapture];
++
++        // Parable: don't leave a button held in the game while the user is elsewhere.
++        [staleButtonTimer invalidate];
++        staleButtonTimer = nil;
++        [self releaseStaleMouseButtons];
+     }
+ 
+     - (void) applicationDidUnhide:(NSNotification*)aNotification

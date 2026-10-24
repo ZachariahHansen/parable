@@ -6,11 +6,14 @@ struct ParableApp: App {
     @State private var model = AppModel()
 
     var body: some Scene {
-        Window("Parable", id: "main") {
+        // A window group, not a single Window scene: clicking the Dock icon brings
+        // the window back if it has been closed while the app kept running.
+        WindowGroup("Parable", id: "main") {
             ContentView()
                 .environment(model)
                 .frame(minWidth: 720, minHeight: 460)
         }
+        .commands { CommandGroup(replacing: .newItem) {} }  // one window is enough
     }
 }
 

@@ -38,7 +38,7 @@ struct BottleDetailView: View {
                 }
                 LabeledContent("Background Programs") {
                     Button("Quit All") { Task { await model.stopAll(in: bottle) } }
-                        .disabled(model.activity != nil)
+                        .disabled(model.activity != nil || !model.isRunning(bottle))
                         .help("Ends everything running in this bottle. Use it when a program won't open because an earlier copy is still running out of sight.")
                 }
                 LabeledContent("Last Run Log") {

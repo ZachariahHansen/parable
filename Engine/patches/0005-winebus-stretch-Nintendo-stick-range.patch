@@ -1,0 +1,53 @@
+--- a/dlls/winebus.sys/bus_sdl.c	2026-07-15 03:37:33
++++ b/dlls/winebus.sys/bus_sdl.c	2026-10-23 20:13:57
+@@ -150,8 +150,24 @@
+     int effect_state[256];
+     LONG effect_flags;
+     int axis_offset;
++    int stick_gain;  /* Parable: percent applied to the sticks, see scale_stick() */
+ };
+ 
++/* Parable: Nintendo controllers report full tilt at roughly 85-90% of the axis
++ * range, and SDL passes that on unchanged. XInput games expect full tilt to
++ * reach the end of the range; Dark Souls, for one, treats ~88% as walking pace
++ * and won't sprint. Stretch those sticks so full tilt reads as full. */
++static int scale_stick(struct sdl_device *impl, int axis, int value)
++{
++    long long scaled;
++
++    if (impl->stick_gain == 100 || axis > SDL_CONTROLLER_AXIS_RIGHTY) return value;
++    scaled = (long long)value * impl->stick_gain / 100;
++    if (scaled > 32767) return 32767;
++    if (scaled < -32768) return -32768;
++    return scaled;
++}
++
+ static inline struct sdl_device *impl_from_unix_device(struct unix_device *iface)
+ {
+     return CONTAINING_RECORD(iface, struct sdl_device, unix_device);
+@@ -420,7 +436,7 @@
+         int value = pSDL_GameControllerGetAxis(impl->sdl_controller, i);
+         if (i == SDL_CONTROLLER_AXIS_LEFTY || i == SDL_CONTROLLER_AXIS_RIGHTY)
+             value = -value - 1; /* match XUSB / GIP protocol */
+-        hid_device_set_abs_axis(iface, i, value);
++        hid_device_set_abs_axis(iface, i, scale_stick(impl, i, value));
+     }
+ 
+     state = pSDL_GameControllerGetButton(impl->sdl_controller, SDL_CONTROLLER_BUTTON_DPAD_UP);
+@@ -915,7 +931,7 @@
+             if (ie->axis == SDL_CONTROLLER_AXIS_LEFTY || ie->axis == SDL_CONTROLLER_AXIS_RIGHTY)
+                 ie->value = -ie->value - 1; /* match XUSB / GIP protocol */
+ 
+-            hid_device_set_abs_axis(iface, ie->axis, ie->value);
++            hid_device_set_abs_axis(iface, ie->axis, scale_stick(impl, ie->axis, ie->value));
+             bus_event_queue_input_report(&event_queue, iface, state->report_buf, state->report_len);
+             break;
+         }
+@@ -1007,6 +1023,7 @@
+         impl->sdl_controller = controller;
+         impl->id = id;
+         impl->axis_offset = axis_offset;
++        impl->stick_gain = (controller && desc.vid == 0x057e) ? 118 : 100;
+ 
+         if (impl->sdl_controller) status = build_controller_report_descriptor(&impl->unix_device);
+         else status = build_joystick_report_descriptor(&impl->unix_device, &desc);

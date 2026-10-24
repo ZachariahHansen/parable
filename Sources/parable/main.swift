@@ -58,7 +58,9 @@ func doctor() {
     print("Bottles")
     let all = bottles.list()
     if all.isEmpty { print("  (none)") }
-    for bottle in all { print("  \(bottle.name) → \(bottle.engine)") }
+    for bottle in all {
+        print("  \(bottle.name) → \(bottle.engine)\(bottles.hasRunningPrograms(bottle.name) ? " (running)" : "")")
+    }
 }
 
 func engineCommand(_ args: [String]) throws {
@@ -159,6 +161,9 @@ func bottleCommand(_ args: [String]) throws {
         print(value.isEmpty ? "unset \(key)" : "set \(key)=\(value)")
     case "engine":
         guard args.count == 3 else { fail("usage: parable bottle engine <name> <engine>") }
+        guard !bottles.hasRunningPrograms(args[1]) else {
+            fail("'\(args[1])' has programs running; quit them first (parable stop \(args[1]))")
+        }
         var bottle = try bottles.load(args[1])
         bottle.engine = try engines.load(args[2]).name
         try bottles.save(bottle)
