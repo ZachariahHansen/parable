@@ -17,8 +17,38 @@ enum WineProcesses {
             // Wine processes run from an engine, or from the per-program links the
             // engine makes in the temporary folder.
             guard path.hasPrefix(engines.path) || path.contains("/winetemp-") else { return false }
-            return environment(of: pid).contains(marker)
+            return commandLine(of: pid).environment.contains(marker)
         }
+    }
+
+    /// The Windows programs running in the bottle, as the files on the Mac's disk
+    /// they were started from. Wine's own background processes, which aren't
+    /// started from a file inside the bottle, are left out.
+    static func programs(prefix: URL, engines: URL) -> [(pid: pid_t, file: URL)] {
+        pids(prefix: prefix, engines: engines).compactMap { pid in
+            guard let first = commandLine(of: pid).arguments.first,
+                  let file = macFile(forProgram: first, prefix: prefix) else { return nil }
+            return (pid, file)
+        }
+    }
+
+    /// Where a program's path, as Wine sees it, is on the Mac's disk. Wine starts
+    /// some programs by their Mac path and others by their Windows one.
+    static func macFile(forProgram path: String, prefix: URL) -> URL? {
+        let drive = prefix.appendingPathComponent("drive_c").resolvingSymlinksInPath().path
+        var file: URL
+        if path.hasPrefix("/") {
+            file = URL(fileURLWithPath: path)
+        } else if path.count > 2, path.dropFirst().hasPrefix(":\\") {
+            // C:\Program Files\... -> <prefix>/dosdevices/c:/Program Files/...
+            let letter = path.prefix(2).lowercased()
+            let rest = path.dropFirst(3).replacingOccurrences(of: "\\", with: "/")
+            file = prefix.appendingPathComponent("dosdevices/\(letter)/\(rest)")
+        } else {
+            return nil
+        }
+        file = file.standardizedFileURL.resolvingSymlinksInPath()
+        return file.path.hasPrefix(drive + "/") ? file : nil
     }
 
     /// Asks the processes to quit, then insists.
@@ -47,14 +77,14 @@ enum WineProcesses {
         return String(decoding: buffer.prefix(Int(length)).map { UInt8(bitPattern: $0) }, as: UTF8.self)
     }
 
-    /// A process's environment variables, which macOS lets a user read for their
-    /// own processes. Wine rewrites its processes' names, but not these.
-    private static func environment(of pid: pid_t) -> [String] {
+    /// A process's arguments and environment variables, which macOS lets a user
+    /// read for their own processes. Wine rewrites its processes' names, but not these.
+    private static func commandLine(of pid: pid_t) -> (arguments: [String], environment: [String]) {
         var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
         var size = 0
-        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else { return [] }
+        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else { return ([], []) }
         var buffer = [UInt8](repeating: 0, count: size)
-        guard sysctl(&mib, 3, &buffer, &size, nil, 0) == 0 else { return [] }
+        guard sysctl(&mib, 3, &buffer, &size, nil, 0) == 0 else { return ([], []) }
 
         // Layout: argc, the executable path, padding, argc arguments, then the environment.
         var argc = buffer.withUnsafeBytes { $0.load(as: Int32.self) }
@@ -62,13 +92,13 @@ enum WineProcesses {
         while index < size, buffer[index] != 0 { index += 1 }  // executable path
         while index < size, buffer[index] == 0 { index += 1 }  // padding
 
-        var strings: [String] = []
+        var arguments: [String] = [], environment: [String] = []
         var start = index
         while index < size {
             if buffer[index] == 0 {
                 if index > start {
                     let string = String(decoding: buffer[start..<index], as: UTF8.self)
-                    if argc > 0 { argc -= 1 } else { strings.append(string) }
+                    if argc > 0 { argc -= 1; arguments.append(string) } else { environment.append(string) }
                 } else if argc == 0 {
                     break  // an empty string after the arguments ends the environment
                 }
@@ -76,6 +106,6 @@ enum WineProcesses {
             }
             index += 1
         }
-        return strings
+        return (arguments, environment)
     }
 }

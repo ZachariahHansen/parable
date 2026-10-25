@@ -1,0 +1,62 @@
+--- a/dlls/kernelbase/process.c
++++ b/dlls/kernelbase/process.c
+@@ -1370,7 +1370,51 @@
+ 
+ static char *command_lineA;
+ static WCHAR *command_lineW;
++
++/* Parable: Unity creates its asset-loading manager lazily and without a lock.
++ * When several background jobs open asset bundles at once at startup, each can
++ * create its own manager; only one of them ever runs, so bundles handed to the
++ * others never load and the game waits forever without opening a window. On
++ * Windows the main thread usually wins the race; under Wine on macOS the jobs
++ * often do. A single background worker serializes those jobs. A Unity player is
++ * recognised by UnityPlayer.dll and a <name>_Data folder next to it (the crash
++ * handler shares the folder but has no _Data). Set PARABLE_UNITY_FIX=0 to opt
++ * out; an explicit -background-job-worker-count on the command line wins. */
++static void apply_unity_loading_fix( RTL_USER_PROCESS_PARAMETERS *params )
++{
++    static const WCHAR option[] = L" -background-job-worker-count 1";
++    const WCHAR *image = params->ImagePathName.Buffer, *slash, *dot;
++    WCHAR path[MAX_PATH], value[8], *cmdline;
++    SIZE_T dir_len, name_len, len;
++    DWORD attr;
+ 
++    if (!image || !params->CommandLine.Buffer) return;
++    if (GetEnvironmentVariableW( L"PARABLE_UNITY_FIX", value, ARRAY_SIZE(value) ) && !wcscmp( value, L"0" )) return;
++    if (wcsstr( params->CommandLine.Buffer, L"-background-job-worker-count" )) return;
++
++    if (!(slash = wcsrchr( image, '\\' ))) return;
++    dir_len = slash + 1 - image;
++    if (!(dot = wcsrchr( slash, '.' ))) dot = slash + lstrlenW( slash );
++    name_len = dot - (slash + 1);
++    if (dir_len + name_len + ARRAY_SIZE(L"UnityPlayer.dll") > ARRAY_SIZE(path)) return;
++
++    memcpy( path, image, dir_len * sizeof(WCHAR) );
++    lstrcpyW( path + dir_len, L"UnityPlayer.dll" );
++    attr = GetFileAttributesW( path );
++    if (attr == INVALID_FILE_ATTRIBUTES || (attr & FILE_ATTRIBUTE_DIRECTORY)) return;
++
++    memcpy( path + dir_len, slash + 1, name_len * sizeof(WCHAR) );
++    lstrcpyW( path + dir_len + name_len, L"_Data" );
++    attr = GetFileAttributesW( path );
++    if (attr == INVALID_FILE_ATTRIBUTES || !(attr & FILE_ATTRIBUTE_DIRECTORY)) return;
++
++    len = params->CommandLine.Length / sizeof(WCHAR) + ARRAY_SIZE(option);
++    if (!(cmdline = RtlAllocateHeap( GetProcessHeap(), 0, len * sizeof(WCHAR) ))) return;
++    memcpy( cmdline, params->CommandLine.Buffer, params->CommandLine.Length );
++    lstrcpyW( cmdline + params->CommandLine.Length / sizeof(WCHAR), option );
++    RtlInitUnicodeString( &params->CommandLine, cmdline );
++}
++
+ /******************************************************************
+  *		init_startup_info
+  */
+@@ -1378,6 +1422,7 @@
+ {
+     ANSI_STRING ansi;
+ 
++    apply_unity_loading_fix( params );
+     command_lineW = params->CommandLine.Buffer;
+     if (!RtlUnicodeStringToAnsiString( &ansi, &params->CommandLine, TRUE )) command_lineA = ansi.Buffer;
+ }

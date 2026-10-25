@@ -102,7 +102,8 @@ Parable's engine is CodeWeavers' CrossOver 26.3 source release (Wine 11.0) with 
 - `0003`: give each program its own name in the app switcher. Wine runs everything from one executable, so they were all called "wine".
 - `0004`: name the per-program loader links like apps ("Steam", not "steam.exe"), which is what the Dock displays. Parable sets `WINEDLLPATH` to switch that mechanism on.
 - `0005`: stretch the Switch Pro Controller's sticks to their full range. Its sticks stop short of the edge, so games never saw a full push and wouldn't let you sprint.
-- `0006`: release mouse buttons the game still thinks are held after you switch apps. macOS never delivers the button-up, which made games attack on their own when you came back.
+- `0006`: release mouse buttons Windows still thinks are held but are physically up. A release can go missing when you switch apps, or when another program in the session (Steam, say) never sees it, which made games attack on their own.
+- `0007`: start Unity games with a single background job worker. Unity creates its asset-loading manager without a lock, and when several background jobs race to create it at startup the game waits forever without opening a window (seen with Viewfinder). Set `PARABLE_UNITY_FIX=0` in a bottle's environment to turn it off, or pass your own `-background-job-worker-count` in the game's launch options.
 
 It is built with SDL so that controllers reach games through Wine itself.
 

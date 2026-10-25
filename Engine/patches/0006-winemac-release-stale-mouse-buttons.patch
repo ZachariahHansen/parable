@@ -1,5 +1,5 @@
---- a/dlls/winemac.drv/cocoa_app.m	2026-10-23 20:56:17
-+++ b/dlls/winemac.drv/cocoa_app.m	2026-10-23 20:56:04
+--- a/dlls/winemac.drv/cocoa_app.m
++++ b/dlls/winemac.drv/cocoa_app.m
 @@ -25,6 +25,7 @@
  #import "cocoa_icon_utils.h"
  
@@ -8,28 +8,30 @@
  
  #pragma GCC diagnostic ignored "-Wdeclaration-after-statement"
  
-@@ -2433,6 +2434,66 @@
+@@ -2433,6 +2434,68 @@
      /*
       * ---------- NSApplicationDelegate methods ----------
       */
 +    /* Parable: a button press can reach a game without its release, for example
-+     * when the click that brings the game back is let go during the switch. The
-+     * game then believes the button is held, and in many games the left button
-+     * attacks or fires until it is clicked again. Compare what we last told the
-+     * game with the buttons that are really down, and release any that aren't. */
++     * when the click that brings the game back is let go during the switch, or
++     * when another program in the session (Steam, say) never saw its release.
++     * The game then believes the button is held, and in many games the left
++     * button attacks or fires until it is clicked again. For every button that
++     * is really up, ask the Windows side to release it if it thinks it's held. */
 +    - (void) releaseStaleMouseButtons
 +    {
-+        static const struct { NSEventType down; int button; NSUInteger physical; } buttons[] = {
-+            { NSEventTypeLeftMouseDown,  0, 1 << 0 },
-+            { NSEventTypeRightMouseDown, 1, 1 << 1 },
-+            { NSEventTypeOtherMouseDown, 2, 1 << 2 },
++        static const struct { NSEventType down; int button; } buttons[] = {
++            { NSEventTypeLeftMouseDown,  0 },
++            { NSEventTypeRightMouseDown, 1 },
++            { NSEventTypeOtherMouseDown, 2 },
++            { NSEventTypeOtherMouseDown, 3 },
++            { NSEventTypeOtherMouseDown, 4 },
 +        };
-+        NSUInteger physical;
++        NSUInteger physical = [NSEvent pressedMouseButtons];
 +        WineWindow* target = nil;
++        CGEventRef current;
++        CGPoint pt;
 +        int i;
-+
-+        if (!unmatchedMouseDowns) return;
-+        physical = [NSEvent pressedMouseButtons];
 +
 +        if ([mouseCaptureWindow isKindOfClass:[WineWindow class]])
 +            target = mouseCaptureWindow;
@@ -45,25 +47,25 @@
 +            }
 +        }
 +
++        current = CGEventCreate(NULL);
++        pt = current ? CGEventGetLocation(current) : CGPointZero;
++        if (current) CFRelease(current);
++        pt = cgpoint_win_from_mac(pt);
++
 +        for (i = 0; i < sizeof(buttons) / sizeof(buttons[0]); i++)
 +        {
-+            NSUInteger mask = NSEventMaskFromType(buttons[i].down);
-+            CGEventRef current;
-+            CGPoint pt;
 +            macdrv_event* event;
 +
-+            if (!(unmatchedMouseDowns & mask) || (physical & buttons[i].physical)) continue;
-+            unmatchedMouseDowns &= ~mask;
++            if (physical & (1 << buttons[i].button)) continue;
++            /* Buttons 2 and up share one "other" record; clear it once none is down. */
++            if (buttons[i].button < 2 || !(physical & ~3))
++                unmatchedMouseDowns &= ~NSEventMaskFromType(buttons[i].down);
 +            if (!target) continue;
-+
-+            current = CGEventCreate(NULL);
-+            pt = current ? CGEventGetLocation(current) : CGPointZero;
-+            if (current) CFRelease(current);
-+            pt = cgpoint_win_from_mac(pt);
 +
 +            event = macdrv_create_event(MOUSE_BUTTON, target);
 +            event->mouse_button.button = buttons[i].button;
 +            event->mouse_button.pressed = FALSE;
++            event->mouse_button.if_held = TRUE;
 +            event->mouse_button.x = floor(pt.x);
 +            event->mouse_button.y = floor(pt.y);
 +            event->mouse_button.time_ms = [self ticksForEventTime:[[NSProcessInfo processInfo] systemUptime]];
@@ -75,7 +77,7 @@
      - (void)applicationDidBecomeActive:(NSNotification *)notification
      {
          NSNumber* displayID;
-@@ -2468,6 +2529,16 @@
+@@ -2468,6 +2531,16 @@
          // movement deltas are invalidated.  Make sure the next mouse move event
          // starts over from an absolute baseline.
          forceNextMouseMoveAbsolute = TRUE;
@@ -92,7 +94,7 @@
      }
  
      - (void)applicationDidChangeScreenParameters:(NSNotification *)notification
-@@ -2502,6 +2573,11 @@
+@@ -2502,6 +2575,11 @@
          }
  
          [self releaseMouseCapture];
@@ -104,3 +106,37 @@
      }
  
      - (void) applicationDidUnhide:(NSNotification*)aNotification
+--- a/dlls/winemac.drv/macdrv_cocoa.h
++++ b/dlls/winemac.drv/macdrv_cocoa.h
+@@ -386,6 +386,7 @@
+         struct {
+             int             button;
+             bool            pressed;
++            bool            if_held;  /* Parable: release only if Windows thinks it's down */
+             int             x;
+             int             y;
+             unsigned long   time_ms;
+--- a/dlls/winemac.drv/mouse.c
++++ b/dlls/winemac.drv/mouse.c
+@@ -878,6 +878,21 @@
+     }
+     else
+     {
++        /* Parable: a periodic check from the Cocoa side, sent for buttons that are
++         * physically up. Windows' button state is shared by every program in the
++         * session, so a press can be left behind by another one (Steam, say) whose
++         * release never came. Release it here, but only if it is actually held. */
++        if (event->mouse_button.if_held)
++        {
++            static const BYTE vkeys[] = { VK_LBUTTON, VK_RBUTTON, VK_MBUTTON, VK_XBUTTON1, VK_XBUTTON2 };
++            int button = event->mouse_button.button;
++
++            if (button < 0 || button >= ARRAY_SIZE(vkeys) ||
++                !(NtUserGetAsyncKeyState(vkeys[button]) & 0x8000))
++                return;
++            WARN("releasing button %d, which Windows thought was still held\n", button);
++        }
++
+         switch (event->mouse_button.button)
+         {
+         case 0: flags |= MOUSEEVENTF_LEFTUP; break;

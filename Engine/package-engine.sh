@@ -4,7 +4,7 @@
 # writes EngineBuild/parable-engine-<version>.tar.xz.
 #
 # Usage: Engine/package-engine.sh <installed-engine-name> <version>
-#        Engine/package-engine.sh parable/parable-engine 11.0-3
+#        Engine/package-engine.sh parable/parable-engine 11.0-4
 # Needs Homebrew's mingw-w64 for its strip tools. Quit anything using the engine first.
 set -eu
 root=${0:A:h:h}

@@ -127,7 +127,23 @@ final class AppModel {
     }
 
     func run(_ file: URL, in bottle: Bottle) {
-        run(Runner.arguments(forFile: file), in: bottle)
+        let arguments = Runner.arguments(forFile: file)
+        let program = file.deletingPathExtension().lastPathComponent
+        switch runner.plan(forOpening: file, in: bottle.name) {
+        case .start:
+            run(arguments, in: bottle)
+        case .restart:
+            // Running out of sight with its window closed: start it over.
+            Task {
+                let (runner, name) = (runner, bottle.name)
+                await background("Restarting \(program)…") { try runner.stopAll(in: name) }
+                runningCounts[name] = 0
+                run(arguments, in: bottle)
+            }
+        case .busy(let other):
+            errorMessage = "\(program) is still running in the background, along with \(other). " +
+                "Quit \(other), then press Run again to reopen \(program)."
+        }
     }
 
     /// Starts `wine <arguments>` in the bottle and tracks it until it exits.

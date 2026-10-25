@@ -72,6 +72,42 @@ public struct Runner: Sendable {
         return process
     }
 
+    /// What has to happen before `file` can be opened in the bottle.
+    public enum LaunchPlan: Equatable, Sendable {
+        /// It isn't running: just start it.
+        case start
+        /// It's already running, probably with its window closed, and nothing else
+        /// is: restart the bottle's programs, then start it.
+        case restart
+        /// It's already running alongside another program, which restarting
+        /// would close too. Carries that program's name.
+        case busy(String)
+    }
+
+    /// Opening a program that is already running normally hands over to the
+    /// running copy, which shows its window. Steam doesn't do that once its window
+    /// has been closed with the close button: it stays running out of sight, and
+    /// starting it again does nothing. So a second start is a restart instead.
+    public func plan(forOpening file: URL, in bottleName: String) -> LaunchPlan {
+        let prefix = bottles.prefix(for: bottleName)
+        let running = WineProcesses.programs(prefix: prefix, engines: bottles.paths.engines)
+        guard let target = WineProcesses.macFile(forProgram: file.path, prefix: prefix),
+              running.contains(where: { $0.file == target }) else { return .start }
+
+        // The program's own helpers live in its folder; Steam also keeps its games
+        // there. Wine's own services and shared ones under Common Files don't count.
+        let folder = target.deletingLastPathComponent().path + "/"
+        let drive = prefix.appendingPathComponent("drive_c").resolvingSymlinksInPath().path
+        let other = running.map(\.file).first { file in
+            let path = file.path
+            let lower = path.lowercased()
+            if lower.hasPrefix(drive.lowercased() + "/windows/") || lower.contains("/common files/") { return false }
+            return !path.hasPrefix(folder) || lower.contains("/steamapps/")
+        }
+        if let other { return .busy(other.deletingPathExtension().lastPathComponent) }
+        return .restart
+    }
+
     /// Ends every program running in the bottle, including ones with no window.
     /// Closing a window doesn't always quit the program behind it: Steam keeps
     /// running in the background, and then won't open a second time.

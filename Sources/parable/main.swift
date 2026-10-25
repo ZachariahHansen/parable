@@ -192,6 +192,17 @@ do {
         try d3dmetalCommand(Array(args.dropFirst()))
     case "run":
         guard args.count >= 3 else { fail("usage: parable run <bottle> <program> [args]") }
+        let file = URL(fileURLWithPath: args[2])
+        if FileManager.default.fileExists(atPath: file.path) {
+            switch runner.plan(forOpening: file, in: args[1]) {
+            case .start: break
+            case .restart:
+                print("\(file.lastPathComponent) is already running out of sight; restarting it.")
+                try runner.stopAll(in: args[1])
+            case .busy(let other):
+                print("\(file.lastPathComponent) is already running, along with \(other); not restarting it.")
+            }
+        }
         exit(try runner.wine(Array(args.dropFirst(2)), in: args[1]))
     case "stop":
         guard args.count == 2 else { fail("usage: parable stop <bottle>") }
