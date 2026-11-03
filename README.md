@@ -52,12 +52,16 @@ A controller works over Bluetooth, but expect input delay. In testing with a Swi
 
 ### If a program won't open
 
-Closing a window doesn't always quit the program. Steam in particular keeps running out of sight, and then refuses to open a second time. Quit Steam with **Steam → Exit**, or use **Background Programs → Quit All** in the bottle's Tools to end everything in the bottle.
+Closing a window doesn't always quit the program. Steam in particular keeps running out of sight, and ignores being started a second time, and some games hang while quitting. Pressing **Run** on a program that is already running out of sight restarts it. A game is restarted on its own, leaving Steam running; Steam is restarted only when no game is running. **Background Programs → Quit All** in the bottle's Tools ends everything in the bottle, even a Steam that no longer responds to **Steam → Exit**.
+
+### Where games keep their files
+
+Each bottle has its own Documents, Downloads, Music, Pictures and Videos folders inside it, so Windows programs never see your Mac's folders and macOS doesn't ask for permission each time a game saves. Saves that games keep in Documents are in the bottle: **C: Drive → Show in Finder** in the bottle's Tools, then `users/crossover/Documents`. Bottles made before Parable 0.1.4 still link to the Mac's folders.
 
 ### Bottle settings
 
 - **Engine**: which Wine build the bottle uses.
-- **Retina mode**: sharper picture at full display resolution. Quit the bottle's programs before changing it.
+- **Retina mode**: sharper picture at full display resolution. Quit the bottle's programs before changing it. It applies only while the main display is a Retina one; on an ordinary monitor, or one mirroring the Mac's screen, programs run at the monitor's own resolution. Parable picks the matching text size whenever it starts the bottle, so quit the bottle's programs after switching displays.
 - **Controller face buttons**: match the letters printed on a Nintendo-style controller, or match Xbox positions.
 - **Show Metal performance HUD**: frame rate overlay in games.
 
@@ -104,6 +108,7 @@ Parable's engine is CodeWeavers' CrossOver 26.3 source release (Wine 11.0) with 
 - `0005`: stretch the Switch Pro Controller's sticks to their full range. Its sticks stop short of the edge, so games never saw a full push and wouldn't let you sprint.
 - `0006`: release mouse buttons Windows still thinks are held but are physically up. A release can go missing when you switch apps, or when another program in the session (Steam, say) never sees it, which made games attack on their own.
 - `0007`: start Unity games with a single background job worker. Unity creates its asset-loading manager without a lock, and when several background jobs race to create it at startup the game waits forever without opening a window (seen with Viewfinder). Set `PARABLE_UNITY_FIX=0` in a bottle's environment to turn it off, or pass your own `-background-job-worker-count` in the game's launch options.
+- `0008`: apply Retina mode only on Retina displays. On an ordinary monitor it made Windows believe a 1920×1080 screen was 3840×2160, so a game asking for 1920×1080 switched the monitor to a lower refresh rate and was drawn at twice the size of the screen.
 
 It is built with SDL so that controllers reach games through Wine itself.
 

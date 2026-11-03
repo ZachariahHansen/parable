@@ -199,10 +199,14 @@ do {
             case .restart:
                 print("\(file.lastPathComponent) is already running out of sight; restarting it.")
                 try runner.stopAll(in: args[1])
+            case .end(let pids):
+                print("\(file.lastPathComponent) is still running out of sight; ending it.")
+                runner.end(pids, in: args[1])
             case .busy(let other):
                 print("\(file.lastPathComponent) is already running, along with \(other); not restarting it.")
             }
         }
+        try runner.matchDPIToMainDisplay(in: args[1])
         exit(try runner.wine(Array(args.dropFirst(2)), in: args[1]))
     case "stop":
         guard args.count == 2 else { fail("usage: parable stop <bottle>") }

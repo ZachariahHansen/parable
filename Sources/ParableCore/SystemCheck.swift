@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// Facts about the host Mac that decide whether Windows games can run.
@@ -11,6 +12,13 @@ public enum SystemCheck {
     /// Rosetta 2 translates the x86 code in Wine and in the games themselves.
     public static var rosettaInstalled: Bool {
         FileManager.default.fileExists(atPath: "/Library/Apple/usr/libexec/oah/libRosettaRuntime")
+    }
+
+    /// Whether the main display, the one with the menu bar, has more pixels than
+    /// points, as Retina displays do. Wine only uses Retina mode on such a display.
+    public static var mainDisplayIsRetina: Bool {
+        guard let mode = CGDisplayCopyDisplayMode(CGMainDisplayID()) else { return false }
+        return mode.pixelWidth > mode.width
     }
 
     public static var macOSVersion: String {

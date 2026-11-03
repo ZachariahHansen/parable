@@ -102,6 +102,50 @@ public struct BottleStore: Sendable {
         !WineProcesses.pids(prefix: prefix(for: name), engines: paths.engines).isEmpty
     }
 
+    /// The DPI Windows programs in the bottle are told to draw at, as last saved to
+    /// disk by Wine, or nil if it was never set. Only current while nothing runs.
+    public func logPixels(_ name: String) -> Int? {
+        let registry = prefix(for: name).appendingPathComponent("user.reg")
+        guard let text = try? String(contentsOf: registry, encoding: .utf8) else { return nil }
+        var inDesktop = false
+        for line in text.split(separator: "\n") {
+            if line.hasPrefix("[") {
+                inDesktop = line.hasPrefix("[Control Panel\\\\Desktop]")
+            } else if inDesktop, line.hasPrefix("\"LogPixels\"=dword:") {
+                return Int(line.dropFirst("\"LogPixels\"=dword:".count), radix: 16)
+            }
+        }
+        return nil
+    }
+
+    /// Gives the bottle its own Documents, Downloads, Music, Pictures and Videos.
+    ///
+    /// Wine links these to the Mac's own folders. macOS guards those, so every
+    /// time a game or Steam touched one (games keep saves in Documents), macOS
+    /// asked for permission on Parable's behalf, and Windows programs could see
+    /// the user's files. Each folder gets a desktop.ini, as on Windows, because
+    /// Wine replaces empty folders with links again when it updates the bottle.
+    /// Replacing a link hides whatever programs saved through it, so this is
+    /// meant for new bottles. It never touches the Mac folders themselves.
+    public func keepUserFoldersInBottle(_ name: String) throws {
+        let fm = FileManager.default
+        let users = prefix(for: name).appendingPathComponent("drive_c/users", isDirectory: true)
+        let accounts = (try? fm.contentsOfDirectory(at: users, includingPropertiesForKeys: nil)) ?? []
+        for account in accounts where account.lastPathComponent != "Public" {
+            for folder in ["Documents", "Downloads", "Music", "Pictures", "Videos"] {
+                let url = account.appendingPathComponent(folder, isDirectory: true)
+                if (try? fm.destinationOfSymbolicLink(atPath: url.path)) != nil {
+                    try fm.removeItem(at: url)  // removes the link, not what it points to
+                }
+                try fm.createDirectory(at: url, withIntermediateDirectories: true)
+                let marker = url.appendingPathComponent("desktop.ini")
+                if !fm.fileExists(atPath: marker.path) {
+                    try Data("[.ShellClassInfo]\r\n".utf8).write(to: marker)
+                }
+            }
+        }
+    }
+
     /// Moves a bottle, including everything installed in it, to the Trash.
     public func trash(_ name: String) throws {
         _ = try load(name)

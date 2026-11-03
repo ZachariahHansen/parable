@@ -1,0 +1,66 @@
+--- a/dlls/winemac.drv/display.c
++++ b/dlls/winemac.drv/display.c
+@@ -376,6 +376,18 @@
+         free_display_mode_descriptor(desc);
+     NtClose(hkey);
+     return ret;
++}
++
++
++/* Parable: Retina mode presents a display's original mode to Windows at twice
++ * its size in points, which is its true pixel size only on a Retina display. On
++ * an ordinary monitor it made Windows believe a 1920x1080 screen was 3840x2160,
++ * so games asking for 1920x1080 switched the monitor to a lower refresh rate of
++ * the same size, which also turned Retina mode off mid-game and left the game
++ * drawn at twice the size of the screen. Only double modes that are Retina. */
++static BOOL retina_doubles(const struct display_mode_descriptor* desc)
++{
++    return retina_enabled && desc && desc->pixel_width > desc->width;
+ }
+ 
+ 
+@@ -667,7 +679,7 @@
+     for (i = 0; i < count; i++)
+     {
+         CGDisplayModeRef new_mode = (CGDisplayModeRef)CFArrayGetValueAtIndex(modes, i);
+-        BOOL new_is_original = display_mode_matches_descriptor(new_mode, desc);
++        BOOL new_is_original = display_mode_matches_descriptor(new_mode, desc) && retina_doubles(desc);
+         CFDictionaryRef key = create_mode_dict(new_mode, new_is_original);
+         CGDisplayModeRef old_mode = (CGDisplayModeRef)CFDictionaryGetValue(modes_by_size, key);
+ 
+@@ -706,7 +718,7 @@
+     {
+         struct display_mode_descriptor* desc = create_original_display_mode_descriptor(kCGDirectMainDisplay);
+         CGDisplayModeRef mode = CGDisplayCopyDisplayMode(kCGDirectMainDisplay);
+-        BOOL new_value = display_mode_matches_descriptor(mode, desc);
++        BOOL new_value = retina_doubles(desc) && display_mode_matches_descriptor(mode, desc);
+ 
+         CGDisplayModeRelease(mode);
+         free_display_mode_descriptor(desc);
+@@ -745,7 +757,7 @@
+         if (!refresh_rate)
+             refresh_rate = 60;
+ 
+-        if (is_original && retina_enabled)
++        if (is_original && retina_doubles(desc))
+         {
+             width *= 2;
+             height *= 2;
+@@ -886,7 +898,7 @@
+ 
+         display_mode_to_devmode_fields(display_id, mode, devmodes + i);
+ 
+-        if (retina_enabled && display_mode_matches_descriptor(mode, desc))
++        if (retina_doubles(desc) && display_mode_matches_descriptor(mode, desc))
+         {
+             devmodes[i].dmPelsWidth *= 2;
+             devmodes[i].dmPelsHeight *= 2;
+@@ -933,7 +945,7 @@
+     if (retina_enabled)
+     {
+         struct display_mode_descriptor *desc = create_original_display_mode_descriptor(display_id);
+-        if (display_mode_matches_descriptor(display_mode, desc))
++        if (retina_doubles(desc) && display_mode_matches_descriptor(display_mode, desc))
+         {
+             devmode->dmPelsWidth *= 2;
+             devmode->dmPelsHeight *= 2;

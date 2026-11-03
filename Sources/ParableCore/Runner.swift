@@ -58,6 +58,7 @@ public struct Runner: Sendable {
     @discardableResult
     public func launch(_ arguments: [String], in bottleName: String,
                        onExit: @escaping @Sendable (Int32) -> Void) throws -> Process {
+        try matchDPIToMainDisplay(in: bottleName)
         let process = try makeProcess(arguments, bottleName: bottleName)
         let log = bottles.logFile(for: bottleName)
         FileManager.default.createFile(atPath: log.path, contents: nil)
@@ -79,33 +80,51 @@ public struct Runner: Sendable {
         /// It's already running, probably with its window closed, and nothing else
         /// is: restart the bottle's programs, then start it.
         case restart
-        /// It's already running alongside another program, which restarting
-        /// would close too. Carries that program's name.
+        /// It's already running alongside programs that don't depend on it, such
+        /// as Steam for a game that hung while quitting: end just these processes
+        /// of its own, then start it.
+        case end([pid_t])
+        /// It's already running alongside a program that depends on it, which
+        /// restarting would close too, such as a game for Steam. Carries that
+        /// program's name.
         case busy(String)
     }
 
     /// Opening a program that is already running normally hands over to the
     /// running copy, which shows its window. Steam doesn't do that once its window
     /// has been closed with the close button: it stays running out of sight, and
-    /// starting it again does nothing. So a second start is a restart instead.
+    /// starting it again does nothing. Games can hang while quitting, leaving no
+    /// window at all. So a second start is a restart instead.
     public func plan(forOpening file: URL, in bottleName: String) -> LaunchPlan {
         let prefix = bottles.prefix(for: bottleName)
         let running = WineProcesses.programs(prefix: prefix, engines: bottles.paths.engines)
         guard let target = WineProcesses.macFile(forProgram: file.path, prefix: prefix),
               running.contains(where: { $0.file == target }) else { return .start }
 
-        // The program's own helpers live in its folder; Steam also keeps its games
-        // there. Wine's own services and shared ones under Common Files don't count.
+        // The program's own helpers live in its folder. Steam also keeps its games
+        // there, under steamapps, and those aren't its own. Wine's own services and
+        // shared ones under Common Files belong to no program.
         let folder = target.deletingLastPathComponent().path + "/"
         let drive = prefix.appendingPathComponent("drive_c").resolvingSymlinksInPath().path
-        let other = running.map(\.file).first { file in
-            let path = file.path
-            let lower = path.lowercased()
-            if lower.hasPrefix(drive.lowercased() + "/windows/") || lower.contains("/common files/") { return false }
-            return !path.hasPrefix(folder) || lower.contains("/steamapps/")
+        func isOwn(_ file: URL) -> Bool {
+            file.path.hasPrefix(folder) && !file.path.dropFirst(folder.count).lowercased().contains("steamapps/")
         }
-        if let other { return .busy(other.deletingPathExtension().lastPathComponent) }
-        return .restart
+        let others = running.filter { program in
+            let lower = program.file.path.lowercased()
+            if lower.hasPrefix(drive.lowercased() + "/windows/") || lower.contains("/common files/") { return false }
+            return !isOwn(program.file)
+        }
+        // Programs kept in its folder that aren't its own, like Steam's games, rely on it.
+        if let dependent = others.first(where: { $0.file.path.hasPrefix(folder) }) {
+            return .busy(dependent.file.deletingPathExtension().lastPathComponent)
+        }
+        if others.isEmpty { return .restart }
+        return .end(running.filter { isOwn($0.file) }.map(\.pid))
+    }
+
+    /// Ends particular processes in the bottle and leaves the rest running.
+    public func end(_ pids: [pid_t], in bottleName: String) {
+        WineProcesses.terminate(pids, prefix: bottles.prefix(for: bottleName), engines: bottles.paths.engines)
     }
 
     /// Ends every program running in the bottle, including ones with no window.
@@ -139,23 +158,41 @@ public struct Runner: Sendable {
         let code = try wine(["wineboot", "--init"], in: bottleName,
                             extraEnvironment: ["WINEDLLOVERRIDES": "mscoree,mshtml="])
         guard code == 0 else { throw ParableError("wineboot exited with status \(code)") }
+        try bottles.keepUserFoldersInBottle(bottleName)
     }
 
     /// Switches the bottle between native Retina rendering and pixel-doubled output.
     /// Takes effect for programs started afterwards.
     public func setRetina(_ enabled: Bool, in bottleName: String) throws {
-        // Windows apps must be told to draw at 2x (192 DPI), or they come out tiny.
-        let settings = [
-            ["HKCU\\Software\\Wine\\Mac Driver", "/v", "RetinaMode", "/t", "REG_SZ", "/d", enabled ? "y" : "n"],
-            ["HKCU\\Control Panel\\Desktop", "/v", "LogPixels", "/t", "REG_DWORD", "/d", enabled ? "192" : "96"],
-        ]
-        for setting in settings {
-            let code = try wine(["reg", "add"] + setting + ["/f"], in: bottleName)
-            guard code == 0 else { throw ParableError("reg add exited with status \(code)") }
-        }
+        try setRegistry(["HKCU\\Software\\Wine\\Mac Driver", "/v", "RetinaMode", "/t", "REG_SZ", "/d", enabled ? "y" : "n"],
+                        in: bottleName)
+        try setRegistry(dpiSetting(retina: enabled), in: bottleName)
         var bottle = try bottles.load(bottleName)
         bottle.retina = enabled
         try bottles.save(bottle)
+    }
+
+    /// Wine uses Retina mode only while the main display is a Retina one, and
+    /// Windows reads the DPI once, when the bottle starts. So before starting an
+    /// idle Retina bottle, match the DPI to the display it will start on.
+    public func matchDPIToMainDisplay(in bottleName: String) throws {
+        let bottle = try bottles.load(bottleName)
+        guard bottle.retina, !bottles.hasRunningPrograms(bottleName) else { return }
+        let setting = dpiSetting(retina: true)
+        guard bottles.logPixels(bottleName).map(String.init) != setting.last else { return }
+        try setRegistry(setting, in: bottleName)
+    }
+
+    /// In Retina mode Windows apps must be told to draw at 2x (192 DPI), or they
+    /// come out tiny; on any other display at 1x, or they come out twice the size.
+    private func dpiSetting(retina: Bool) -> [String] {
+        let dpi = retina && SystemCheck.mainDisplayIsRetina ? "192" : "96"
+        return ["HKCU\\Control Panel\\Desktop", "/v", "LogPixels", "/t", "REG_DWORD", "/d", dpi]
+    }
+
+    private func setRegistry(_ setting: [String], in bottleName: String) throws {
+        let code = try wine(["reg", "add"] + setting + ["/f"], in: bottleName)
+        guard code == 0 else { throw ParableError("reg add exited with status \(code)") }
     }
 
     private func makeProcess(_ arguments: [String], bottleName: String) throws -> Process {

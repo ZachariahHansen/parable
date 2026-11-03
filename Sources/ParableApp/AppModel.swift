@@ -140,6 +140,13 @@ final class AppModel {
                 runningCounts[name] = 0
                 run(arguments, in: bottle)
             }
+        case .end(let pids):
+            // Its window is gone but it never finished quitting; the rest of the bottle carries on.
+            Task {
+                let (runner, name) = (runner, bottle.name)
+                await background("Closing \(program)…") { runner.end(pids, in: name) }
+                run(arguments, in: bottle)
+            }
         case .busy(let other):
             errorMessage = "\(program) is still running in the background, along with \(other). " +
                 "Quit \(other), then press Run again to reopen \(program)."

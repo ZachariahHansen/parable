@@ -17,7 +17,10 @@ enum WineProcesses {
             // Wine processes run from an engine, or from the per-program links the
             // engine makes in the temporary folder.
             guard path.hasPrefix(engines.path) || path.contains("/winetemp-") else { return false }
-            return commandLine(of: pid).environment.contains(marker)
+            // Wine drops its loader from the argument list in place, which shifts
+            // the first environment variable into the arguments, so look in both.
+            let (arguments, environment) = commandLine(of: pid)
+            return environment.contains(marker) || arguments.contains(marker)
         }
     }
 
@@ -26,8 +29,11 @@ enum WineProcesses {
     /// started from a file inside the bottle, are left out.
     static func programs(prefix: URL, engines: URL) -> [(pid: pid_t, file: URL)] {
         pids(prefix: prefix, engines: engines).compactMap { pid in
-            guard let first = commandLine(of: pid).arguments.first,
-                  let file = macFile(forProgram: first, prefix: prefix) else { return nil }
+            // The program is the first argument inside the bottle; before it may
+            // come the engine's loader link, depending on how Wine was started.
+            let arguments = commandLine(of: pid).arguments
+            guard let file = arguments.lazy.compactMap({ macFile(forProgram: $0, prefix: prefix) }).first
+            else { return nil }
             return (pid, file)
         }
     }
